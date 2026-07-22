@@ -37,7 +37,7 @@ To collect the necessary data, we will be using data collected through [Xatu](ht
     
 **SQL Query** 
 
-```
+```sql
 SELECT lower(address) AS addr, max(block_number) AS block
     FROM (
         SELECT address, block_number FROM canonical_execution_balance_diffs
@@ -62,7 +62,7 @@ The query aggregates all account write events within the specified block range b
 **Storage Slot Data**
 
 **SQL Query** 
-```
+```sql
 SELECT lower(address) AS addr, lower(slot) AS slot_key, max(block_number) AS block
     FROM canonical_execution_storage_diffs
     WHERE block_number >= ? AND block_number <= ?
