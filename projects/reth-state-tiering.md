@@ -162,7 +162,7 @@ When a maximal inactive subtree is identified and moved to the cold file, it is 
 
 The format of the Primary Stub is as follows:
 
-* Marker (1 Byte): 0x00 — identifies the database entry as a cold state stub.
+* Marker (1 Byte): 0x00 -> identifies the database entry as a cold state stub.
 
 * Blob Offset (8 Bytes): The absolute byte position in the append-only file where the specific subtree blob begins.
 
