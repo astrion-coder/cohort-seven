@@ -225,10 +225,6 @@ This layout preserves the complete Merkle Patricia Trie structure while allowing
 
 * **Uncertainty about Parameters**: [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) and [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295) are very new EIPs and plenty of constant parameters like `blocks_per_period` and `inactive_min_age` are still TBD. Without those parameters, a lot of sample experimentation is necessary to figure out which are the optimal values for those parameters.
 
-## Goal of the project
-
-Success looks like:
-
 ## Goal of the Project
 
 Success looks like:
