@@ -84,7 +84,7 @@ This definition comes from [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295). 
 
 ### Inactive Subtree Identification
 
-The inactive-subtree identification routine finds **maximal inactive subtrees** in the Ethereum state trie according to the inactivity criteria described in EIP-8188. A subtree is considered **inactive** if all accounts (or storage slots, for a storage trie) in the subtree have an age greater than or equal to a user-defined threshold (`inactive_min_age`). The age of an object is determined by the `last_written_period` stored in the [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) snapshot metadata.
+The inactive-subtree identification routine finds **maximal inactive subtrees** in the Ethereum state trie according to the inactivity criteria described in EIP-8188. A subtree is considered **inactive** if all accounts (or storage slots, for a storage trie) in the subtree have an age greater than or equal to a user-defined threshold (`inactive_min_age`). The age of an object is determined by the `last_written_period` stored in the [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295) snapshot metadata.
 
 The identification algorithm makes one sequential depth-first-traversal (DFS) traversal of the account trie, while moving a snapshot iterator over the corresponding metadata. Because both iterators enumerate leaves in the same deterministic order, each account or storage slot is processed exactly once, with no need for random lookups. This makes the algorithm amenable to execution on mainnet-sized state and integration into clients such as Reth.
 
