@@ -174,8 +174,8 @@ The actual Cold State File is comprised of concatenated **blobs**, which contain
 
 * **Header (16 bytes)**
 
-  * Contains metadata about the blob..
-  * Includes blob format version, reserved bytes, offset of the root node, and the size of the root node..
+  * Contains metadata about the blob.
+  * Includes blob format version, reserved bytes, offset of the root node, and the size of the root node.
   * Allows the reader to find the root of the serialized trie.
 
 * **Serialized Trie**
