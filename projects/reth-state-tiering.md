@@ -165,7 +165,7 @@ The Primary Stub has the following structure:
 ```
 primary stub
 ───────────────────────────
-marker + blobOffset(8) + rootInBlob(4) + rootSize(4)
+marker + blobOffset + rootInBlob + rootSize
 ```
 
 * Marker (1 Byte): 0x00 -> marker of the database entry as a cold state stub.
@@ -178,41 +178,36 @@ marker + blobOffset(8) + rootInBlob(4) + rootSize(4)
 
 The actual Cold State File is comprised of concatenated **blobs**, which contain the following structure:
 
-* **Header (16 bytes)**
+```
+blob
+───────────────────────────
+- header
+    versionNumber | reservedBytes | rootOffset | rootSize
 
-  * Contains metadata about the blob.
-  * Includes blob format version, reserved bytes, offset of the root node, and the size of the root node.
-  * Allows the reader to find the root of the serialized trie.
+- body
+    Contains the serialized trie in post-order DFS format
+```
 
-* **Serialized Trie**
+**Header (16 bytes)**: The header contains some basic metadata about the blob. It includes the version number which indicates the version number of the blob, some reserved bytes, offset of the root node and size of the root. The offset allows the reader of the file to find the root of the serialized trie.
 
-  * Contains the whole inactive subtree serialized in **post-order DFS**, where all children are written before their parent.
-  * Therefore, the root node is the last node in the blob.
+**Body**: The body of the blob contains the actual trie in post-order DFS format, meaning the children of the trie are written before the parent. Because of this post-order format, the root node becomes the last node of the blob.
 
-* **Trie Node**
+**Trie Node Structure**
 
-  * Each node starts with a one-byte **type** identifier.
-  * The possible types of nodes include:
+Each Trie node can be one of two types:
 
-    * **Full Node**
+* **Full Node**: This node represents a branch node in the Merkle Patricia Trie. It contains 17 child slots, one for each nibble (`0-15`) and one value slot.
 
-      * Is a representation of a branch node in the Merkle Patricia Trie.
-      * Contains 17 child slots: one for each nibble (`0-15`) and one value slot.
+* **Short Node**: This node represents a leaf node. It contains the key part followed by one child slot.
 
-    * **Short Node**
+**Child Slot Structure**
 
-      * Is a representation of either an extension or a leaf node.
-      * Contains the compressed key part followed by one child slot.
+Each child slot contains a one-byte **kind** field that describes how the child is encoded. The possible kinds of the child slots include:
 
-* **Child Slot**
-
-  * Each child slot contains a one-byte **kind** field that describes how the child is encoded.
-  * The possible kinds of the child slots include:
-
-    * **Empty**: means that there is no child.
-    * **Hashed Reference**: contains the child's Keccak-256 hash, as well as its offset and size within the blob.
-    * **Embedded Reference**: only includes the offset and size of the child, as the embedded nodes do not have any independent hashes.
-    * **Inline Value**: stores the serialized value directly within the node (typically the account or storage value associated with a leaf).
+* **Empty**: means that there is no child.
+* **Hashed Reference**: contains the child's Keccak-256 hash, as well as its offset and size within the blob.
+* **Embedded Reference**: only includes the offset and size of the child, as the embedded nodes do not have any independent hashes.
+* **Inline Value**: stores the serialized value directly within the node (typically the account or storage value associated with a leaf).
 
 This layout preserves the complete Merkle Patricia Trie structure while allowing inactive subtrees to be stored as self-contained blobs that can later be reconstructed or materialized without requiring access to the active state database.
 
@@ -220,11 +215,11 @@ This layout preserves the complete Merkle Patricia Trie structure while allowing
 
 | **Phase**                                                 | **Weeks** | **Deliverables**                                                                                                                                                                                                                      |
 | --------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1: Data Collection & Period Generation**                | **6**   | Implementation of the data collection pipeline with Xatu and ClickHouse, calculation of the `last_written_block` for accounts and storage slots, calculation of `last_written_period` according to EIP-8295, validation of the metadata generation.               |
-| **2: Period Injection (`reth db inject-periods`)**        | **7-8**   | Extension of the state schema with `last_written_period`, implementation of the `reth db inject-periods` command, injection of account and storage metadata into the state, compatibility of the implementation with the existing RocksDB-backed state.          |
-| **3: Inactive Subtree Identification**                    | **9-11**  | Implementation of the DFS algorithm for detecting inactive subtrees, traversing account and storage tries using snapshot metadata, detection of maximal inactive subtrees, validation of the correctness of the implementation on state snapshots.        |
-| **4: Cold State Conversion (`reth db convert-inactive`)** | **12-14** | Serialization of inactive subtrees into the append-only cold state file, generation of the blob format and primary stubs, replacement of inactive subtrees in the hot state with stubs, implementation of lazy retrieval of subtrees. |
-| **5: Testing, Benchmarking & Optimization**               | **15-18** | Test functionality, benchmark hot & cold states, check correctness of the state root and integrity of the data, fix implementation issues, and optimize performance.               |
+| **1: Data Collection & Period Generation**                | **6**   | Implementation of the data collection pipeline with Xatu and ClickHouse and calculation of EIP-8188 and EIP-8295 metadata.
+| **2: Period Injection (`reth db inject-periods`)**        | **7-8**   | Extension of the state schema with `last_written_period` and implementation of the `reth db inject-periods` command.          |
+| **3: Inactive Subtree Identification**                    | **9-11**  | Implementation of the DFS algorithm for detecting inactive subtrees and detection of maximal inactive subtrees.        |
+| **4: Cold State Conversion (`reth db convert-inactive`)** | **12-14** | Generation of the blob format and primary stubs, serialization of inactive subtrees into the cold state file and replacement of inactive subtrees in the hot state with stubs |
+| **5: Testing, Benchmarking & Optimization**               | **15-18** | Test functionality, benchmark hot & cold states                |
 | **(Stretch)**                                             | **18+**   | Extend for Ethrex as well if there is any extra time left.                                                          |
 
 
