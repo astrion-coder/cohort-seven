@@ -18,4 +18,4 @@ To create a project, write your proposal based on [template](./project-template.
 - [2D Filtermaps in Reth](./2d-filtermaps-in-reth.md) - Ayush
 - [Hive Spec-test Hardening](./hive-spect-test-hardening.md)
 - [Ream BlackBox Interop Testing](./Ream-BlackBosx-Interop-Testing.md) - Mohit
-
+- [Reth State Tiering](./reth-state-tiering.md) - Astrion
