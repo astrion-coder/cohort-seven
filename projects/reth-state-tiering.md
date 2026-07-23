@@ -158,7 +158,7 @@ fn identify_inactive_subtrees(trie: Trie, snapshot: Snapshot, min_age: u64) {
 After the inactive subtree has been identified, it gets stored in the cold state and a reference for it is stored in the hot state.
 
 ### Cold State Format
-When a maximal inactive subtree is identified and moved to the cold file, it is replaced in the hot database by a compact 17-byte "primary stub". This stub acts as a filesystem pointer, allowing the client to resolve the data only when needed.
+When a maximal inactive subtree is identified and moved to the cold file, it is replaced in the hot database by a compact 17-byte "primary stub". This stub acts as a filesystem pointer and allows the client to resolve the data only when needed.
 
 The Primary Stub has the following structure:
 
