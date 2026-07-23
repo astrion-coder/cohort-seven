@@ -57,7 +57,7 @@ SELECT lower(address) AS addr, max(block_number) AS block
 
 **Explanation**
 
-The query aggregates all account write events in the specified block range by querying balance changes table (`canonical_execution_balance_diffs`), nonce updates table (`canonical_execution_nonce_diffs`), storage modifications table (`canonical_execution_storage_diffs`) and contract creations table (`canonical_execution_contracts`). It then groups the results by account address and selects the max `block_number` for each account. This value corresponds to the account’s `last_written_block`, following the definition of “Account Modified” as defined under the “Account Rules” section in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188), since it represents the most recent block in which the account was modified.
+This query aggregates all account write events in the specified block range by querying balance changes table (`canonical_execution_balance_diffs`), nonce updates table (`canonical_execution_nonce_diffs`), storage modifications table (`canonical_execution_storage_diffs`) and contract creations table (`canonical_execution_contracts`). It then groups the results by account address and selects the max `block_number` for each account. This value corresponds to the account’s `last_written_block`, following the definition of “Account Modified” as defined under the “Account Rules” section in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188), since it represents the most recent block in which the account was modified.
 
 **Storage Slot Data**
 
@@ -72,7 +72,7 @@ SELECT lower(address) AS addr, lower(slot) AS slot_key, max(block_number) AS blo
 
 **Explanation**
 
-The query looks `canonical_execution_storage_diffs` to find which storage slot changes have taken place within the given range . It ignores writes where the new value is zero (`0x0`, `0x00`, or `0`), because [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) only tracks storage slots still allocated after the write. The results are grouped by account address and storage slot, and the maximum `block_number` is selected for each pair. This value is the storage slot's `last_written_block`, i.e. the latest block in which that non-zero storage slot was modified.
+This query looks at `canonical_execution_storage_diffs` to find which storage slot changes have taken place within the given range . It ignores writes where the new value is zero (`0x0`, `0x00`, or `0`), because [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) only tracks storage slots still allocated after the write. The results are grouped by account address and storage slot, and the maximum `block_number` is selected for each pair. This value is the storage slot's `last_written_block`, i.e. the latest block in which that non-zero storage slot was modified.
 
 From this `last_written_block` data, `last_written_period` is calculated as follows:
 
