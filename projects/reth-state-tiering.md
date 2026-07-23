@@ -57,7 +57,7 @@ SELECT lower(address) AS addr, max(block_number) AS block
 
 **Explanation**
 
-The query aggregates all account write events within the specified block range by combining balance changes (`canonical_execution_balance_diffs`), nonce updates (`canonical_execution_nonce_diffs`), storage modifications (`canonical_execution_storage_diffs`), and contract creations (`canonical_execution_contracts`). It then groups the results by account address and selects the maximum block_number for each account. This value corresponds to the account's `last_written_block`, following the definition of "account modified" as defined under the "Account Rules" section in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188), since it represents the most recent block in which the account was modified. 
+The query aggregates all account write events in the specified block range by querying balance changes table (`canonical_execution_balance_diffs`), nonce updates table (`canonical_execution_nonce_diffs`), storage modifications table (`canonical_execution_storage_diffs`) and contract creations table (`canonical_execution_contracts`). It then groups the results by account address and selects the max `block_number` for each account. This value corresponds to the account’s `last_written_block`, following the definition of “Account Modified” as defined under the “Account Rules” section in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188), since it represents the most recent block in which the account was modified.
 
 **Storage Slot Data**
 
@@ -72,7 +72,7 @@ SELECT lower(address) AS addr, lower(slot) AS slot_key, max(block_number) AS blo
 
 **Explanation**
 
-The query scans `canonical_execution_storage_diffs` to identify all storage slot modifications within the specified block range. It filters out writes where the new value is zero (`0x0`, `0x00`, or `0`), since [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) tracks only storage slots that remain allocated after the write. The results are grouped by account address and storage slot, and the maximum `block_number` is selected for each pair. This value represents the storage slot's `last_written_block`, i.e., the most recent block in which that non-zero storage slot was modified.
+The query looks canonical_execution_storage_diffs to find which storage slot changes have taken place within the given range . It ignores writes where the new value is zero (`0x0`, `0x00`, or `0`), because [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) only tracks storage slots still allocated after the write. The results are grouped by account address and storage slot, and the maximum `block_number` is selected for each pair. This value is the storage slot's `last_written_block`, i.e. the latest block in which that non-zero storage slot was modified.
 
 From this `last_written_block` data, `last_written_period` is calculated as follows:
 
@@ -84,15 +84,15 @@ This definition comes from [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295). 
 
 ### Inactive Subtree Identification
 
-The inactive-subtree identification routine identifies **maximal inactive subtrees** in the Ethereum state trie according to the inactivity criteria defined by [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188). A subtree is considered **inactive** if every account (or storage slot, in the case of a storage trie) contained within the subtree has an age greater than or equal to a user-specified threshold (`inactive_min_age`). The age of an object is computed from the `last_written_period` stored in the EIP-8188 snapshot metadata.
+The inactive-subtree identification routine finds **maximal inactive subtrees** in the Ethereum state trie according to the inactivity criteria described in EIP-8188. A subtree is considered **inactive** if all accounts (or storage slots, for a storage trie) in the subtree have an age greater than or equal to a user-defined threshold (`inactive_min_age`). The age of an object is determined by the `last_written_period` stored in the [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) snapshot metadata.
 
-The identification algorithm performs a single sequential DFS traversal of the account trie while simultaneously advancing a snapshot iterator over the corresponding metadata. Since both iterators enumerate leaves in the same deterministic order, every account or storage slot is processed exactly once without requiring random lookups. This makes the algorithm suitable for execution on mainnet-sized state and for integration into clients such as Reth.
+The identification algorithm makes one sequential depth-first-traversal (DFS) traversal of the account trie, while moving a snapshot iterator over the corresponding metadata. Because both iterators enumerate leaves in the same deterministic order, each account or storage slot is processed exactly once, with no need for random lookups. This makes the algorithm amenable to execution on mainnet-sized state and integration into clients such as Reth.
 
 During traversal, a stack of internal-node frames is maintained. Each frame aggregates the inactivity status of its children in a bottom-up manner. Child subtrees that are completely inactive are temporarily stored as candidates. When an internal node has been fully processed, the algorithm determines whether all of its descendants are inactive. If so, the node itself becomes the representative inactive subtree and its candidate children are discarded. Otherwise, the node is mixed, and all previously collected inactive child candidates are emitted as maximal inactive subtree roots. This guarantees that the output contains the largest possible inactive subtrees without redundancy.
 
-Before beginning traversal, the snapshot is synchronized with the latest committed state by flushing any pending in-memory or layered state into the persistent snapshot view. This ensures that recently modified accounts and storage slots are visible to both the snapshot iterator and the trie traversal, preventing stale metadata from affecting subtree identification.
+Before the traversal begins, the snapshot is synchronized to the latest committed state by flushing any in-memory or layered state to the persistent snapshot view. This makes sure that any recently modified accounts and storage slots are available to both the snapshot iterator and the trie traversal, thus preventing the stale metadata from having any kind of effect on subtree identification.
 
-#### Pseudocode
+**Pseudocode**
 
 ```rust
 fn identify_inactive_subtrees(trie: Trie, snapshot: Snapshot, min_age: u64) {
@@ -160,52 +160,53 @@ After the inactive subtree has been identified, it gets stored in the cold state
 ### Cold State Format
 When a maximal inactive subtree is identified and moved to the cold file, it is replaced in the hot database by a compact 17-byte "primary stub". This stub acts as a filesystem pointer, allowing the client to resolve the data only when needed.
 
-The format of the Primary Stub is as follows:
+The Primary Stub is formatted as below:
 
-* Marker (1 Byte): 0x00 -> identifies the database entry as a cold state stub.
+* Marker (1 Byte): 0x00 -> marker of the database entry as a cold state stub.
 
-* Blob Offset (8 Bytes): The absolute byte position in the append-only file where the specific subtree blob begins.
+* Blob Offset (8 Bytes): Absolute byte position in the append-only file of the beginning of the subtree blob.
 
-* Root in Blob (4 Bytes): The relative offset within that blob entry to the root node of the subtree.
+* Root in Blob (4 Bytes): Relative offset in this blob entry of the root node of the subtree.
 
-* Root Size (4 Bytes): The byte length of the root entry.
+* Root Size (4 Bytes): Byte Size of the root entry.
 
-The actual Cold State file is a collection of concatenated **blobs**, where each blob has the following format:
+The actual Cold State File is comprised of concatenated **blobs**, which contain the following structure:
 
 * **Header (16 bytes)**
 
-  * Stores metadata describing the blob.
-  * Contains the blob format version, reserved bytes, the offset of the root node, and the size of the root node.
-  * Enables the reader to locate the root of the serialized trie.
+  * Contains metadata about the blob..
+  * Includes blob format version, reserved bytes, offset of the root node, and the size of the root node..
+  * Allows the reader to find the root of the serialized trie.
 
 * **Serialized Trie**
 
-  * Contains the complete inactive subtree serialized in **post-order depth-first traversal (DFS)**, where all children are written before their parent.
-  * The root node is therefore the last node stored in the blob.
+  * Contains the whole inactive subtree serialized in **post-order DFS**, where all children are written before their parent.
+  * Therefore, the root node is the last node in the blob.
 
 * **Trie Node**
 
-  * Every node begins with a one-byte **node type** identifier.
-  * A node can be one of two types:
+  * Each node starts with a one-byte **type** identifier.
+  * The possible types of nodes include:
 
     * **Full Node**
 
-      * Represents a branch node in the Merkle Patricia Trie.
-      * Contains 17 child slots: one for each hexadecimal nibble (`0–15`) and one value slot.
+      * Is a representation of a branch node in the Merkle Patricia Trie.
+      * Contains 17 child slots: one for each nibble (`0-15`) and one value slot.
+
     * **Short Node**
 
-      * Represents either an extension node or a leaf node.
-      * Contains the compressed key segment followed by a single child slot.
+      * Is a representation of either an extension or a leaf node.
+      * Contains the compressed key part followed by one child slot.
 
 * **Child Slot**
 
-  * Each child slot begins with a one-byte **kind** field indicating how the child is represented.
-  * The supported child slot types are:
+  * Each child slot contains a one-byte **kind** field that describes how the child is encoded.
+  * The possible kinds of the child slots include:
 
-    * **Empty** – indicates that no child exists.
-    * **Hashed Reference** – stores the child's Keccak-256 hash together with its offset and size within the blob.
-    * **Embedded Reference** – stores only the child's offset and size, since embedded nodes do not have an independent hash.
-    * **Inline Value** – stores the serialized value directly within the node (typically the account or storage value associated with a leaf).
+    * **Empty**: means that there is no child.
+    * **Hashed Reference**: contains the child's Keccak-256 hash, as well as its offset and size within the blob.
+    * **Embedded Reference**: only includes the offset and size of the child, as the embedded nodes do not have any independent hashes.
+    * **Inline Value**: stores the serialized value directly within the node (typically the account or storage value associated with a leaf).
 
 This layout preserves the complete Merkle Patricia Trie structure while allowing inactive subtrees to be stored as self-contained blobs that can later be reconstructed or materialized without requiring access to the active state database.
 
@@ -213,12 +214,12 @@ This layout preserves the complete Merkle Patricia Trie structure while allowing
 
 | **Phase**                                                 | **Weeks** | **Deliverables**                                                                                                                                                                                                                      |
 | --------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1: Data Collection & Period Generation**                | **6**   | Implement the data collection pipeline using Xatu and ClickHouse, derive `last_written_block` for accounts and storage slots, compute `last_written_period` according to EIP-8295, and validate the generated metadata.               |
-| **2: Period Injection (`reth db inject-periods`)**        | **7-8**   | Extend the state schema to store `last_written_period`, implement the `reth db inject-periods` command, inject account and storage metadata into the state, and ensure compatibility with the existing RocksDB-backed state.          |
-| **3: Inactive Subtree Identification**                    | **9-11**  | Implement the DFS-based inactive subtree identification algorithm, traverse account and storage tries using snapshot metadata, identify maximal inactive subtrees, and validate correctness on representative state snapshots.        |
-| **4: Cold State Conversion (`reth db convert-inactive`)** | **12-14** | Implement serialization of inactive subtrees into the append-only cold state file, generate the blob format and primary stubs, replace inactive subtrees in the hot state with stubs, and implement lazy retrieval from cold storage. |
-| **5: Testing, Benchmarking & Optimization**               | **15-18** | Perform functional and integration testing, benchmark hot/cold state performance, verify state root correctness and data integrity, fix implementation issues, and optimize storage layout and traversal performance.                 |
-| **(Stretch)**                                             | **18+**   | Extend the implementation for Ethrex as well if time remains.                                                          |
+| **1: Data Collection & Period Generation**                | **6**   | Implementation of the data collection pipeline with Xatu and ClickHouse, calculation of the `last_written_block` for accounts and storage slots, calculation of `last_written_period` according to EIP-8295, validation of the metadata generation.               |
+| **2: Period Injection (`reth db inject-periods`)**        | **7-8**   | Extension of the state schema with `last_written_period`, implementation of the `reth db inject-periods` command, injection of account and storage metadata into the state, compatibility of the implementation with the existing RocksDB-backed state.          |
+| **3: Inactive Subtree Identification**                    | **9-11**  | Implementation of the DFS algorithm for detecting inactive subtrees, traversing account and storage tries using snapshot metadata, detection of maximal inactive subtrees, validation of the correctness of the implementation on state snapshots.        |
+| **4: Cold State Conversion (`reth db convert-inactive`)** | **12-14** | Serialization of inactive subtrees into the append-only cold state file, generation of the blob format and primary stubs, replacement of inactive subtrees in the hot state with stubs, implementation of lazy retrieval of subtrees. |
+| **5: Testing, Benchmarking & Optimization**               | **15-18** | Test functionality, benchmark hot & cold states, check correctness of the state root and integrity of the data, fix implementation issues, and optimize performance.               |
+| **(Stretch)**                                             | **18+**   | Extend for Ethrex as well if there is any extra time left.                                                          |
 
 
 ## Possible challenges
@@ -231,10 +232,8 @@ Success looks like:
 
 * A complete implementation of the state tiering primitives described in **EIP-8188** and **EIP-8295** within Reth.
 * A working `reth db inject-periods` command that computes and injects `last_written_period` metadata for all accounts and storage slots using data collected from Xatu.
-* A working `reth db convert-inactive` command that correctly identifies maximal inactive subtrees, serializes them into the cold state file, and replaces them in the hot state with primary stubs.
-* A cold state format that faithfully preserves the original Merkle Patricia Trie structure and allows inactive subtrees to be materialized on demand.
-* Correctness of the implementation verified through functional and integration testing, ensuring that trie integrity, state roots, and account/storage lookups remain unchanged after state tiering.
-* Performance evaluation demonstrating that inactive state can be successfully separated from the hot database while maintaining correctness and providing the foundation for future state expiry and tiered storage optimizations.
+* A working `reth db convert-inactive` command that correctly identifies maximal inactive subtrees, stores them in a proper format in the cold state file, and replaces them in the hot state with primary stubs that reference them in the cold state.
+* A cold state format that properly preserves the original Merkle Patricia Trie structure and allows inactive subtrees to be accessed and materialized on demand.
 
 ## Collaborators
 
