@@ -160,7 +160,13 @@ After the inactive subtree has been identified, it gets stored in the cold state
 ### Cold State Format
 When a maximal inactive subtree is identified and moved to the cold file, it is replaced in the hot database by a compact 17-byte "primary stub". This stub acts as a filesystem pointer, allowing the client to resolve the data only when needed.
 
-The Primary Stub is formatted as below:
+The Primary Stub has the following structure:
+
+```
+primary stub
+───────────────────────────
+marker + blobOffset(8) + rootInBlob(4) + rootSize(4)
+```
 
 * Marker (1 Byte): 0x00 -> marker of the database entry as a cold state stub.
 
