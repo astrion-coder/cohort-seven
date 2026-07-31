@@ -1,6 +1,6 @@
 # State Tiering using EIP-8188 and EIP-8295 for Reth 
 
-Implementing Ethereum state tiering through `last_written_block` and `last_written_period` signal to allow for increased gas costs for write-inactive states.
+Implementing Ethereum state tiering through `last_written_block` and `last_written_period` signal to allow for efficient state management.
 
 ## Motivation
 
@@ -31,48 +31,15 @@ Some other support commands may be added as necessary.
 
 ### Data Collection
 
-To collect the necessary data, we will be using data collected through [Xatu](https://github.com/ethpandaops/xatu) and stored in ClickHouse. The ClickHouse instance allows us to extract necessary data using simple SQL queries:
+To collect the necessary data, we will be using data collected through [Xatu](https://github.com/ethpandaops/xatu) and stored in ClickHouse. The ClickHouse instance allows us to extract necessary data using simple SQL queries.
 
-**Account Data**
+#### Account Data
     
-**SQL Query** 
+ To collect all account write events in the specified block range, we will query balance changes table (`canonical_execution_balance_diffs`), nonce updates table (`canonical_execution_nonce_diffs`), storage modifications table (`canonical_execution_storage_diffs`) and contract creations table (`canonical_execution_contracts`). We will then group the results by account address and select the max `block_number` for each account. This value will correspond to the account’s `last_written_block`, following the definition of “Account Modified” as defined under the “Account Rules” section in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188), since it represents the most recent block in which the account was modified.
 
-```sql
-SELECT lower(address) AS addr, max(block_number) AS block
-    FROM (
-        SELECT address, block_number FROM canonical_execution_balance_diffs
-            WHERE block_number >= ? AND block_number <= ?
-        UNION ALL
-        SELECT address, block_number FROM canonical_execution_nonce_diffs
-            WHERE block_number >= ? AND block_number <= ?
-        UNION ALL
-        SELECT address, block_number FROM canonical_execution_storage_diffs
-            WHERE block_number >= ? AND block_number <= ?
-        UNION ALL
-        SELECT contract_address AS address, block_number FROM canonical_execution_contracts
-            WHERE block_number >= ? AND block_number <= ?
-    )
-    GROUP BY addr
-```
+#### Storage Slot Data
 
-**Explanation**
-
-The query aggregates all account write events in the specified block range by querying balance changes table (`canonical_execution_balance_diffs`), nonce updates table (`canonical_execution_nonce_diffs`), storage modifications table (`canonical_execution_storage_diffs`) and contract creations table (`canonical_execution_contracts`). It then groups the results by account address and selects the max `block_number` for each account. This value corresponds to the account’s `last_written_block`, following the definition of “Account Modified” as defined under the “Account Rules” section in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188), since it represents the most recent block in which the account was modified.
-
-**Storage Slot Data**
-
-**SQL Query** 
-```sql
-SELECT lower(address) AS addr, lower(slot) AS slot_key, max(block_number) AS block
-    FROM canonical_execution_storage_diffs
-    WHERE block_number >= ? AND block_number <= ?
-        AND to_value != '0x0' AND to_value != '0x00' AND to_value != '0'
-    GROUP BY addr, slot_key
-```
-
-**Explanation**
-
-The query looks `canonical_execution_storage_diffs` to find which storage slot changes have taken place within the given range . It ignores writes where the new value is zero (`0x0`, `0x00`, or `0`), because [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) only tracks storage slots still allocated after the write. The results are grouped by account address and storage slot, and the maximum `block_number` is selected for each pair. This value is the storage slot's `last_written_block`, i.e. the latest block in which that non-zero storage slot was modified.
+To collect all necessary storage slot data, we will look at `canonical_execution_storage_diffs` table to find which storage slot changes have taken place within the given range . We will ignore all write where the new value is zero (`0x0`, `0x00`, or `0`), because [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) only tracks storage slots still allocated after the write. We will then group the results by account address and storage slot, and select the maximum `block_number` for each pair. This value is the storage slot's `last_written_block`, i.e. the latest block in which that non-zero storage slot was modified.
 
 From this `last_written_block` data, `last_written_period` is calculated as follows:
 
@@ -80,13 +47,13 @@ From this `last_written_block` data, `last_written_period` is calculated as foll
 last_written_period = max(0, (last_written_block - PERIOD_START_BLOCK) // PERIOD_LENGTH)
 ```
 
-This definition comes from [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295). The `inject-periods` command describes earlier uses these SQL queries to inject the period data into the state.
+This definition comes from [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295). The `inject-periods` command described earlier uses these SQL queries to inject the period data into the state.
 
 ### Inactive Subtree Identification
 
-The inactive-subtree identification routine finds **maximal inactive subtrees** in the Ethereum state trie according to the inactivity criteria described in EIP-8188. A subtree is considered **inactive** if all accounts (or storage slots, for a storage trie) in the subtree have an age greater than or equal to a user-defined threshold (`inactive_min_age`). The age of an object is determined by the `last_written_period` stored in the [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295) snapshot metadata.
+The inactive-subtree identification routine finds **maximal inactive subtrees** in the Ethereum state trie according to the inactivity criteria described in [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188). A subtree is considered **inactive** if all accounts (or storage slots, for a storage trie) in the subtree have an age greater than or equal to a user-defined threshold (`inactive_min_age`). The age of an object is determined by the `last_written_period` stored in the [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295) snapshot metadata.
 
-The identification algorithm makes one sequential depth-first-traversal (DFS) traversal of the account trie, while moving a snapshot iterator over the corresponding metadata. Because both iterators enumerate leaves in the same deterministic order, each account or storage slot is processed exactly once, with no need for random lookups. This makes the algorithm amenable to execution on mainnet-sized state and integration into clients such as Reth.
+The identification algorithm makes one sequential depth-first-search (DFS) traversal of the account trie, while moving a snapshot iterator over the corresponding metadata. Because both iterators enumerate leaves in the same deterministic order, each account or storage slot is processed exactly once, with no need for random lookups. This makes the algorithm amenable to execution on mainnet-sized state and integration into clients such as Reth.
 
 During traversal, a stack of internal-node frames is maintained. Each frame aggregates the inactivity status of its children in a bottom-up manner. Child subtrees that are completely inactive are temporarily stored as candidates. When an internal node has been fully processed, the algorithm determines whether all of its descendants are inactive. If so, the node itself becomes the representative inactive subtree and its candidate children are discarded. Otherwise, the node is mixed, and all previously collected inactive child candidates are emitted as maximal inactive subtree roots. This guarantees that the output contains the largest possible inactive subtrees without redundancy.
 
@@ -226,6 +193,10 @@ This layout preserves the complete Merkle Patricia Trie structure while allowing
 ## Possible challenges
 
 * **Uncertainty about Parameters**: [EIP-8188](https://eips.ethereum.org/EIPS/eip-8188) and [EIP-8295](https://eips.ethereum.org/EIPS/eip-8295) are very new EIPs and plenty of constant parameters like `blocks_per_period` and `inactive_min_age` are still TBD. Without those parameters, a lot of sample experimentation is necessary to figure out which are the optimal values for those parameters.
+
+* **Performance at Mainnet Scale**: The inactive-subtree DFS traverses the full account trie, plus every contract's storage trie, in lockstep with a snapshot iterator. Mainnet state has hundreds of millions of accounts and billions of storage slots, so keeping the traversal, iterator synchronization, and internal-node frame stack performant enough to run in reasonable time (and without excessive memory use) is a real risk that will likely require profiling and iteration.
+
+* **Crash Safety of Hot/Cold Conversion**: `reth db convert-inactive` needs to move a subtree out of the hot database into the append-only cold file and replace it with a stub, ideally atomically. If the process is interrupted mid-conversion, the hot and cold states could end up inconsistent (e.g. a stub pointing at a partially-written blob, or a subtree present in both places at once). Designing a safe commit protocol that tolerates crashes/restarts without corrupting state will be non-trivial.
 
 ## Goal of the Project
 
